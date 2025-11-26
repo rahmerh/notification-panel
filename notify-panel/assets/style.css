@@ -1,0 +1,22 @@
+.transparent {
+    opacity: 0.9;
+}
+
+.background {
+    background-color: #444444;
+}
+
+.list-item {
+    background-color: #444444;
+
+    transition: 
+        background-color 150ms ease,
+        transform 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.list-item:hover {
+    background-color: #545454;
+    transform: scale(1.02);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}

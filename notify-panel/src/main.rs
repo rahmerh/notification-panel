@@ -2,7 +2,8 @@ use chrono::DateTime;
 use gtk4::gdk::BUTTON_SECONDARY;
 use gtk4::prelude::WidgetExt;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Label, ListBox, Orientation, ScrolledWindow,
+    Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, ListBox, Orientation,
+    ScrolledWindow,
 };
 use gtk4::{GestureClick, prelude::*};
 use std::fs::{File, OpenOptions};
@@ -107,6 +108,17 @@ fn delete_notification(timestamp: i64) -> std::io::Result<()> {
     Ok(())
 }
 
+fn load_css() {
+    let css_provider = CssProvider::new();
+    css_provider.load_from_data(include_str!("../assets/style.css"));
+
+    gtk4::style_context_add_provider_for_display(
+        &gtk4::gdk::Display::default().unwrap(),
+        &css_provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_USER,
+    );
+}
+
 fn build_ui(app: &Application) {
     let window = ApplicationWindow::builder()
         .application(app)
@@ -115,8 +127,10 @@ fn build_ui(app: &Application) {
         .default_height(800)
         .resizable(true)
         .build();
+    window.add_css_class("transparent");
 
     let vbox = GtkBox::new(Orientation::Vertical, 8);
+    vbox.add_css_class("background");
 
     let scroller = ScrolledWindow::builder()
         .hexpand(true)
@@ -124,6 +138,7 @@ fn build_ui(app: &Application) {
         .build();
 
     let list = ListBox::new();
+    list.add_css_class("background");
 
     for n in read_notifications(200) {
         let row_box = GtkBox::new(Orientation::Vertical, 2);
@@ -160,6 +175,7 @@ fn build_ui(app: &Application) {
 
         let row = gtk4::ListBoxRow::new();
         row.set_child(Some(&row_box));
+        row.set_css_classes(&vec!["background", "list-item"]);
 
         unsafe { row.set_data("ts", n.ts) };
 
@@ -187,7 +203,10 @@ fn build_ui(app: &Application) {
     scroller.set_child(Some(&list));
     vbox.append(&scroller);
 
+    load_css();
+
     window.set_child(Some(&vbox));
+
     window.present();
 }
 
