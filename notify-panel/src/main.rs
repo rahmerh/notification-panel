@@ -1,9 +1,12 @@
 use chrono::DateTime;
-use gtk4::prelude::*;
+use gtk4::gdk::BUTTON_SECONDARY;
+use gtk4::prelude::WidgetExt;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Label, ListBox, Orientation, ScrolledWindow,
 };
-use std::fs::File;
+use gtk4::{GestureClick, prelude::*};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
@@ -14,11 +17,16 @@ struct Notification {
     body: String,
 }
 
-fn read_notifications(limit: usize) -> Vec<Notification> {
+fn log_path() -> PathBuf {
     let mut path = dirs_next::data_local_dir().unwrap_or_else(|| {
         PathBuf::from(format!("{}/.local/share", std::env::var("HOME").unwrap()))
     });
     path.push("notify-history/notifications.log");
+    path
+}
+
+fn read_notifications(limit: usize) -> Vec<Notification> {
+    let path = log_path();
 
     let file = match File::open(&path) {
         Ok(f) => f,
@@ -28,8 +36,9 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
     let reader = BufReader::new(file);
     let mut entries: Vec<Notification> = reader
         .lines()
-        .filter_map(|line| line.ok())
-        .filter_map(|line| {
+        .enumerate()
+        .filter_map(|(idx, line)| line.ok().map(|l| (idx, l)))
+        .filter_map(|(_, line)| {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() < 4 {
                 return None;
@@ -48,6 +57,54 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
     entries.reverse();
     entries.truncate(limit);
     entries
+}
+
+fn delete_notification(timestamp: i64) -> std::io::Result<()> {
+    let path = log_path();
+
+    let file = match File::open(&path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+
+    let reader = BufReader::new(file);
+    let mut remaining = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let (ts_str, _) = match line.split_once('\t') {
+            Some(x) => x,
+            None => {
+                remaining.push(line);
+                continue;
+            }
+        };
+
+        let ts = match ts_str.parse::<i64>() {
+            Ok(v) => v,
+            Err(_) => {
+                remaining.push(line);
+                continue;
+            }
+        };
+
+        if ts != timestamp {
+            remaining.push(line);
+        }
+    }
+
+    let mut out = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)?;
+
+    for line in remaining {
+        writeln!(out, "{line}")?;
+    }
+
+    Ok(())
 }
 
 fn build_ui(app: &Application) {
@@ -103,6 +160,27 @@ fn build_ui(app: &Application) {
 
         let row = gtk4::ListBoxRow::new();
         row.set_child(Some(&row_box));
+
+        unsafe { row.set_data("ts", n.ts) };
+
+        let list_clone = list.clone();
+        let row_weak = row.downgrade();
+        let gesture = GestureClick::new();
+        gesture.set_button(BUTTON_SECONDARY);
+        gesture.connect_pressed(move |_, _, _, _| {
+            if let Some(row) = row_weak.upgrade() {
+                if let Some(ts) = unsafe { row.data::<i64>("ts") } {
+                    if let Err(e) = delete_notification(unsafe { ts.read() }) {
+                        eprintln!("Failed to delete notification: {e:?}");
+                    }
+
+                    list_clone.remove(&row);
+                }
+            }
+        });
+
+        row.add_controller(gesture);
+
         list.append(&row);
     }
 

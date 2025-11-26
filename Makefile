@@ -28,7 +28,7 @@ install-logger: build-logger
 install-panel: build-panel
 	mkdir -p $(BIN_DIR)
 	install -Dm755 $(PANEL_PKG)/target/release/$(PANEL_BIN) $(BIN_DIR)/$(PANEL_BIN)
-	install -Dm755 $(SCRIPT_NAME) $(SCRIPT_DST)
+	install -Dm755 notify-toggle/$(SCRIPT_NAME) $(SCRIPT_DST)
 
 service: install-logger
 	mkdir -p $(SYSTEMD_USER_DIR)
