@@ -1,0 +1,10 @@
+[package]
+name = "notify-panel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.42"
+dirs-next = "2.0.0"
+glib = "0.21.4"
+gtk4 = "0.10.2"
