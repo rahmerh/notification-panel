@@ -23,4 +23,4 @@ windowrulev2 = move 90% 70, class:^(notify.panel)$
 windowrulev2 = noborder, class:^(notify.panel)$
 ```
 
-How to toggle the panel is up to you, I personally use waybar and have included a simple bash script in this repo to toggle the panel. See my dotfiles for an example how to use these together.
+The make file installs a simple toggle script which you can execute however you like. I personally use waybar, see my dotfiles for an example.
