@@ -12,6 +12,7 @@ struct State {
     app_name: Option<String>,
     summary: Option<String>,
     body: Option<String>,
+    icon: Option<String>,
 }
 
 impl State {
@@ -22,6 +23,7 @@ impl State {
             app_name: None,
             summary: None,
             body: None,
+            icon: None,
         }
     }
 
@@ -31,6 +33,7 @@ impl State {
         self.app_name = None;
         self.summary = None;
         self.body = None;
+        self.icon = None;
     }
 }
 
@@ -67,6 +70,7 @@ fn main() -> Result<()> {
             state.app_name = None;
             state.summary = None;
             state.body = None;
+            state.icon = None;
             continue;
         }
 
@@ -79,6 +83,7 @@ fn main() -> Result<()> {
                         state.string_count += 1;
                         match state.string_count {
                             1 => state.app_name = Some(s),
+                            2 => state.icon = Some(s),
                             3 => state.summary = Some(s),
                             4 => {
                                 state.body = Some(s);
@@ -128,11 +133,16 @@ fn flush_entry(log_file: &mut File, state: &mut State) -> Result<()> {
     };
 
     let body = state.body.as_deref().unwrap_or("");
+    let icon = state.icon.as_deref().unwrap_or("");
 
     let ts = chrono::Local::now().timestamp();
 
-    writeln!(log_file, "{}\t{}\t{}\t{}", ts, app_name, summary, body)
-        .context("Failed to write to log file")?;
+    writeln!(
+        log_file,
+        "{}\t{}\t{}\t{}\t{}",
+        ts, app_name, icon, summary, body
+    )
+    .context("Failed to write to log file")?;
     log_file.flush().context("Failed to flush log file")?;
 
     let human = Local::now().format("%Y-%m-%d %H:%M:%S");

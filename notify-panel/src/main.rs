@@ -2,7 +2,7 @@ use chrono::DateTime;
 use gtk4::gdk::BUTTON_SECONDARY;
 use gtk4::prelude::WidgetExt;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, CssProvider, Label, ListBox, Orientation,
+    Application, ApplicationWindow, Box as GtkBox, CssProvider, Image, Label, ListBox, Orientation,
     ScrolledWindow,
 };
 use gtk4::{GestureClick, prelude::*};
@@ -14,6 +14,7 @@ use std::path::PathBuf;
 struct Notification {
     ts: i64,
     app: String,
+    icon: String,
     summary: String,
     body: String,
 }
@@ -41,15 +42,16 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
         .filter_map(|(idx, line)| line.ok().map(|l| (idx, l)))
         .filter_map(|(_, line)| {
             let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() < 4 {
+            if parts.len() < 5 {
                 return None;
             }
             let ts = parts[0].parse().ok()?;
             Some(Notification {
                 ts,
                 app: parts[1].to_string(),
-                summary: parts[2].to_string(),
-                body: parts[3].to_string(),
+                icon: parts[2].to_string(),
+                summary: parts[3].to_string(),
+                body: parts[4].to_string(),
             })
         })
         .collect();
@@ -141,11 +143,25 @@ fn build_ui(app: &Application) {
     list.add_css_class("background");
 
     for n in read_notifications(200) {
+        let container = GtkBox::new(Orientation::Horizontal, 8);
+        container.set_margin_top(6);
+        container.set_margin_bottom(6);
+        container.set_margin_start(8);
+        container.set_margin_end(8);
+
+        if !n.icon.trim().is_empty() {
+            let icon_img = if n.icon.starts_with('/') {
+                Image::from_file(&n.icon)
+            } else {
+                Image::from_icon_name(&n.icon)
+            };
+
+            icon_img.set_pixel_size(64);
+            icon_img.set_margin_end(8);
+            container.append(&icon_img);
+        }
+
         let row_box = GtkBox::new(Orientation::Vertical, 2);
-        row_box.set_margin_top(6);
-        row_box.set_margin_bottom(6);
-        row_box.set_margin_start(8);
-        row_box.set_margin_end(8);
 
         let time_str = DateTime::from_timestamp(n.ts, 0)
             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
@@ -173,8 +189,10 @@ fn build_ui(app: &Application) {
             row_box.append(&b);
         }
 
+        container.append(&row_box);
+
         let row = gtk4::ListBoxRow::new();
-        row.set_child(Some(&row_box));
+        row.set_child(Some(&container));
         row.set_css_classes(&vec!["background", "list-item"]);
 
         unsafe { row.set_data("ts", n.ts) };
