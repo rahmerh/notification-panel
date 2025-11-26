@@ -1,7 +1,6 @@
 CARGO ?= cargo
 
 PREFIX ?= $(HOME)/.local
-BIN_NAME := notify-history
 BIN_DIR := $(PREFIX)/bin
 
 SYSTEMD_USER_DIR := $(HOME)/.config/systemd/user
@@ -12,6 +11,9 @@ PANEL_PKG := notify-panel
 
 LOGGER_BIN := notify-logger
 PANEL_BIN := notify-panel
+
+SCRIPT_NAME := toggle-notification-panel
+SCRIPT_DST := $(BIN_DIR)/$(SCRIPT_NAME)
 
 build-logger:
 	$(CARGO) build --release --manifest-path $(LOGGER_PKG)/Cargo.toml
@@ -26,6 +28,7 @@ install-logger: build-logger
 install-panel: build-panel
 	mkdir -p $(BIN_DIR)
 	install -Dm755 $(PANEL_PKG)/target/release/$(PANEL_BIN) $(BIN_DIR)/$(PANEL_BIN)
+	install -Dm755 $(SCRIPT_NAME) $(SCRIPT_DST)
 
 service: install-logger
 	mkdir -p $(SYSTEMD_USER_DIR)

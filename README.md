@@ -20,8 +20,6 @@ It's recommended to use hyprland's window rules to make it behave like a proper 
 windowrulev2 = float,      class:^(notify.panel)$
 windowrulev2 = size 500 90%, class:^(notify.panel)$
 windowrulev2 = move 90% 70, class:^(notify.panel)$
-windowrulev2 = nofocus,    class:^(notify.panel)$
-windowrulev2 = stayfocused, class:^(notify.panel)$
 windowrulev2 = noborder, class:^(notify.panel)$
 ```
 
