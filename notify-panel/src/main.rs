@@ -45,13 +45,25 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
             if parts.len() < 5 {
                 return None;
             }
+
             let ts = parts[0].parse().ok()?;
+            let app = parts[1].to_string();
+            let mut icon = parts[2].to_string();
+            let summary = parts[3].to_string();
+            let body = parts[4].to_string();
+
+            if icon.trim().is_empty() {
+                if let Some(resolved) = resolve_icon_from_desktop_entry(&app) {
+                    icon = resolved;
+                }
+            }
+
             Some(Notification {
                 ts,
-                app: parts[1].to_string(),
-                icon: parts[2].to_string(),
-                summary: parts[3].to_string(),
-                body: parts[4].to_string(),
+                app,
+                icon,
+                summary,
+                body,
             })
         })
         .collect();
@@ -60,6 +72,61 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
     entries.reverse();
     entries.truncate(limit);
     entries
+}
+
+fn resolve_icon_from_desktop_entry(app: &str) -> Option<String> {
+    let app = app.trim();
+    if app.is_empty() {
+        return None;
+    }
+
+    // Possible desktop file IDs to try
+    let candidates = [
+        app.to_string(),
+        format!("{app}.desktop"),
+        app.to_lowercase(),
+        format!("{}.desktop", app.to_lowercase()),
+    ];
+
+    for id in &candidates {
+        if let Some(path) = find_desktop_file(id) {
+            if let Ok(file) = File::open(&path) {
+                let reader = BufReader::new(file);
+                for line in reader.lines().flatten() {
+                    if let Some(rest) = line.strip_prefix("Icon=") {
+                        let icon = rest.trim();
+                        if !icon.is_empty() {
+                            // This is usually an icon *name* (e.g. "firefox"),
+                            // which your GTK code can resolve via the icon theme.
+                            return Some(icon.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn find_desktop_file(id: &str) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    dirs.push(PathBuf::from("/usr/share/applications"));
+    dirs.push(PathBuf::from("/usr/local/share/applications"));
+
+    if let Some(data_dir) = dirs_next::data_dir() {
+        dirs.push(data_dir.join("applications"));
+    }
+
+    for mut dir in dirs {
+        dir.push(id);
+        if dir.exists() {
+            return Some(dir);
+        }
+    }
+
+    None
 }
 
 fn delete_notification(timestamp: i64) -> std::io::Result<()> {
@@ -156,7 +223,7 @@ fn build_ui(app: &Application) {
                 Image::from_icon_name(&n.icon)
             };
 
-            icon_img.set_pixel_size(64);
+            icon_img.set_pixel_size(48);
             icon_img.set_margin_end(8);
             container.append(&icon_img);
         }
