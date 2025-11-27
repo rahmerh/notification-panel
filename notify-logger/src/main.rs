@@ -121,11 +121,11 @@ fn write_image_data(message: &NotifyMessage, image_dir: &Path) -> Result<Option<
 }
 
 fn main() -> Result<()> {
-    let data_dir = get_data_dir()?;
-    fs::create_dir_all(&data_dir)
-        .with_context(|| format!("Failed to create data dir {}", data_dir.display()))?;
+    let log_dir = PathBuf::from("/tmp/notification-history");
+    fs::create_dir_all(&log_dir)
+        .with_context(|| format!("Failed to create data dir {}", log_dir.display()))?;
 
-    let log_path = data_dir.join("notifications.log");
+    let log_path = log_dir.join("notifications.log");
     let mut log_file = open_log_file(&log_path)?;
 
     let conn = Connection::session().context("Failed to connect to session D-Bus")?;
@@ -174,11 +174,6 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn get_data_dir() -> Result<PathBuf> {
-    let base = dirs_next::data_dir().context("$XDG_DATA_HOME or platform data dir not found")?;
-    Ok(base.join("notify-history"))
 }
 
 fn open_log_file(path: &PathBuf) -> Result<File> {

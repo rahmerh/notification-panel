@@ -20,11 +20,7 @@ struct Notification {
 }
 
 fn log_path() -> PathBuf {
-    let mut path = dirs_next::data_local_dir().unwrap_or_else(|| {
-        PathBuf::from(format!("{}/.local/share", std::env::var("HOME").unwrap()))
-    });
-    path.push("notify-history/notifications.log");
-    path
+    PathBuf::from("/tmp/notification-history/notifications.log")
 }
 
 fn read_notifications(limit: usize) -> Vec<Notification> {
