@@ -1,15 +1,16 @@
 use anyhow::{Context, Result, bail};
 use chrono::Local;
+use image::{ImageBuffer, RgbaImage};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
-use zbus::message::Body;
-
+use std::path::{Path, PathBuf};
 use zbus::blocking::{Connection, MessageIterator};
-use zbus::zvariant::OwnedValue;
+use zbus::message::Body;
+use zbus::zvariant::{Array, OwnedValue, Structure};
 
 struct NotifyMessage {
+    timestamp: i64,
     app_name: String,
     app_icon: String,
     summary: String,
@@ -41,7 +42,10 @@ impl NotifyMessage {
             .deserialize()
             .context("Failed to deserialize Notify body")?;
 
+        let ts = Local::now().timestamp();
+
         Ok(Self {
+            timestamp: ts,
             app_name,
             app_icon,
             summary,
@@ -49,6 +53,71 @@ impl NotifyMessage {
             hints,
         })
     }
+}
+
+fn write_image_data(message: &NotifyMessage, image_dir: &Path) -> Result<Option<PathBuf>> {
+    let image_data = match message
+        .hints
+        .get("image-data")
+        .or_else(|| message.hints.get("image_data"))
+    {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let s: Structure = image_data
+        .downcast_ref::<Structure>()
+        .context("image-data is not a struct")?;
+
+    let fields = s.fields();
+    if fields.len() != 7 {
+        bail!("image-data struct has {} fields, expected 7", fields.len());
+    }
+
+    let width = fields[0].clone().downcast_ref::<i32>()?;
+    let height = fields[1].clone().downcast_ref::<i32>()?;
+    let rowstride = fields[2].clone().downcast_ref::<i32>()?;
+    let has_alpha = fields[3].clone().downcast_ref::<bool>()?;
+    let bits_per_sample = fields[4].clone().downcast_ref::<i32>()?;
+    let channels = fields[5].clone().downcast_ref::<i32>()?;
+
+    if channels != 4 || bits_per_sample != 8 || !has_alpha {
+        return Ok(None);
+    }
+
+    let array: Array = Array::try_from(&fields[6]).context("image-data field is not an array")?;
+    let mut data = Vec::with_capacity(array.len());
+    for v in array.iter() {
+        let b = u8::try_from(v).context("image-data array contained non-byte value")?;
+        data.push(b);
+    }
+
+    let width_us = width as usize;
+    let height_us = height as usize;
+    let rowstride_us = rowstride as usize;
+
+    if data.len() < rowstride_us * height_us {
+        bail!("image-data buffer shorter than rowstride * height");
+    }
+
+    let mut rgba = Vec::with_capacity(width_us * height_us * channels as usize);
+
+    for y in 0..height_us {
+        let start = y * rowstride_us;
+        let end = start + width_us * channels as usize;
+        let row = &data[start..end];
+
+        rgba.extend_from_slice(row);
+    }
+
+    let img: RgbaImage = ImageBuffer::from_vec(width as u32, height as u32, rgba)
+        .ok_or_else(|| anyhow::anyhow!("Failed to build RgbaImage"))?;
+
+    let out_path = image_dir.join(format!("{}.png", message.timestamp));
+    img.save(&out_path)
+        .with_context(|| format!("Failed to save {}", out_path.display()))?;
+
+    Ok(Some(out_path))
 }
 
 fn main() -> Result<()> {
@@ -86,7 +155,7 @@ fn main() -> Result<()> {
             }
         };
 
-        let message = match NotifyMessage::from_body(&msg.body()) {
+        let mut message = match NotifyMessage::from_body(&msg.body()) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Failed to parse message body: {e}");
@@ -94,7 +163,12 @@ fn main() -> Result<()> {
             }
         };
 
-        if let Err(e) = write_notification(message, &mut log_file) {
+        let image_path = write_image_data(&message, &log_path.parent().unwrap().join("images"))?;
+        if let Some(path) = image_path {
+            message.app_icon = path.to_string_lossy().to_string();
+        }
+
+        if let Err(e) = write_notification(&message, &mut log_file) {
             eprintln!("Failed to log notification: {e}");
         }
     }
@@ -117,17 +191,18 @@ fn open_log_file(path: &PathBuf) -> Result<File> {
     Ok(file)
 }
 
-fn write_notification(message: NotifyMessage, log_file: &mut File) -> Result<()> {
+fn write_notification(message: &NotifyMessage, log_file: &mut File) -> Result<()> {
     if message.app_name.is_empty() || message.summary.is_empty() {
         bail!("Appname and summary are required.");
     }
 
-    let ts = Local::now().timestamp();
+    let summary_sanitized = message.summary.replace('\n', "").replace('\r', "");
+    let body_sanitized = message.body.replace('\n', "").replace('\r', "");
 
     writeln!(
         log_file,
         "{}`{}`{}`{}`{}",
-        ts, message.app_name, message.app_icon, message.summary, message.body
+        message.timestamp, message.app_name, message.app_icon, summary_sanitized, body_sanitized
     )
     .context("Failed to write to log file")?;
     log_file.flush().context("Failed to flush log file")?;

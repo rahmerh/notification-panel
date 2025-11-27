@@ -6,7 +6,7 @@ use gtk4::{
     ScrolledWindow,
 };
 use gtk4::{GestureClick, prelude::*};
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -143,7 +143,7 @@ fn delete_notification(timestamp: i64) -> std::io::Result<()> {
 
     for line in reader.lines() {
         let line = line?;
-        let (ts_str, _) = match line.split_once('\t') {
+        let (ts_str, _) = match line.split_once('`') {
             Some(x) => x,
             None => {
                 remaining.push(line);
@@ -172,6 +172,16 @@ fn delete_notification(timestamp: i64) -> std::io::Result<()> {
 
     for line in remaining {
         writeln!(out, "{line}")?;
+    }
+
+    let icon_path = path
+        .parent()
+        .unwrap()
+        .join("images")
+        .join(format!("{}.png", timestamp));
+
+    if icon_path.exists() {
+        fs::remove_file(icon_path)?;
     }
 
     Ok(())
