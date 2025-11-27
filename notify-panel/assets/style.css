@@ -6,6 +6,10 @@
     background-color: #444444;
 }
 
+.title {
+    font-weight: bold;
+}
+
 .list-item {
     background-color: #444444;
 

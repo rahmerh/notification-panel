@@ -41,7 +41,7 @@ fn read_notifications(limit: usize) -> Vec<Notification> {
         .enumerate()
         .filter_map(|(idx, line)| line.ok().map(|l| (idx, l)))
         .filter_map(|(_, line)| {
-            let parts: Vec<&str> = line.split('\t').collect();
+            let parts: Vec<&str> = line.split('`').collect();
             if parts.len() < 5 {
                 return None;
             }
@@ -168,12 +168,13 @@ fn build_ui(app: &Application) {
             .unwrap_or_else(|| n.ts.to_string());
 
         let title = Label::new(Some(&format!("{}  •  {}", time_str, n.app)));
+        title.add_css_class("title");
         title.set_xalign(0.0);
-        title.add_css_class("heading");
 
         let summary = Label::new(Some(&n.summary));
         summary.set_xalign(0.0);
         summary.set_wrap(true);
+        summary.add_css_class("title");
 
         let body = if !n.body.trim().is_empty() {
             Some(Label::new(Some(&n.body)))

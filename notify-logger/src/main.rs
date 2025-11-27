@@ -139,7 +139,7 @@ fn flush_entry(log_file: &mut File, state: &mut State) -> Result<()> {
 
     writeln!(
         log_file,
-        "{}\t{}\t{}\t{}\t{}",
+        "{}`{}`{}`{}`{}",
         ts, app_name, icon, summary, body
     )
     .context("Failed to write to log file")?;
