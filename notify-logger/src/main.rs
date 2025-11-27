@@ -113,6 +113,10 @@ fn write_image_data(message: &NotifyMessage, image_dir: &Path) -> Result<Option<
     let img: RgbaImage = ImageBuffer::from_vec(width as u32, height as u32, rgba)
         .ok_or_else(|| anyhow::anyhow!("Failed to build RgbaImage"))?;
 
+    if !image_dir.exists() {
+        fs::create_dir_all(&image_dir)?;
+    }
+
     let out_path = image_dir.join(format!("{}.png", message.timestamp));
     img.save(&out_path)
         .with_context(|| format!("Failed to save {}", out_path.display()))?;
