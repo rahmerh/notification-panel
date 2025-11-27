@@ -1,39 +1,53 @@
 use anyhow::{Context, Result, bail};
 use chrono::Local;
-use regex::Regex;
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use zbus::message::Body;
 
-struct State {
-    capturing: bool,
-    string_count: u8,
-    app_name: Option<String>,
-    summary: Option<String>,
-    body: Option<String>,
-    icon: Option<String>,
+use zbus::blocking::{Connection, MessageIterator};
+use zbus::zvariant::OwnedValue;
+
+struct NotifyMessage {
+    app_name: String,
+    app_icon: String,
+    summary: String,
+    body: String,
+    hints: HashMap<String, OwnedValue>,
 }
 
-impl State {
-    fn new() -> Self {
-        Self {
-            capturing: false,
-            string_count: 0,
-            app_name: None,
-            summary: None,
-            body: None,
-            icon: None,
-        }
-    }
+impl NotifyMessage {
+    fn from_body(body: &Body) -> Result<Self> {
+        let (
+            app_name,
+            _replaces_id,
+            app_icon,
+            summary,
+            body_text,
+            _actions,
+            hints,
+            _expire_timeout,
+        ): (
+            String,
+            u32,
+            String,
+            String,
+            String,
+            Vec<String>,
+            HashMap<String, OwnedValue>,
+            i32,
+        ) = body
+            .deserialize()
+            .context("Failed to deserialize Notify body")?;
 
-    fn reset(&mut self) {
-        self.capturing = false;
-        self.string_count = 0;
-        self.app_name = None;
-        self.summary = None;
-        self.body = None;
-        self.icon = None;
+        Ok(Self {
+            app_name,
+            app_icon,
+            summary,
+            body: body_text,
+            hints,
+        })
     }
 }
 
@@ -45,55 +59,43 @@ fn main() -> Result<()> {
     let log_path = data_dir.join("notifications.log");
     let mut log_file = open_log_file(&log_path)?;
 
-    let mut child = Command::new("dbus-monitor")
-        .arg("interface='org.freedesktop.Notifications',member='Notify'")
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("Failed to start dbus-monitor")?;
+    let conn = Connection::session().context("Failed to connect to session D-Bus")?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .context("Failed to capture dbus-monitor stdout")?;
-    let reader = BufReader::new(stdout);
+    let filter = "type='method_call',interface='org.freedesktop.Notifications',member='Notify'";
 
-    let string_re = Regex::new(r#"string\s+"(.*)""#).unwrap();
+    conn.call_method(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        Some("org.freedesktop.DBus.Monitoring"),
+        "BecomeMonitor",
+        &(&[filter][..], 0u32),
+    )
+    .context("BecomeMonitor failed (maybe access denied?)")?;
 
-    let mut state = State::new();
-
-    for line in reader.lines() {
-        let line = line.context("Failed to read line from dbus-monitor")?;
-
-        if line.contains("member=Notify") {
-            state.capturing = true;
-            state.string_count = 0;
-            state.app_name = None;
-            state.summary = None;
-            state.body = None;
-            state.icon = None;
-            continue;
-        }
-
-        if state.capturing {
-            if let Some(caps) = string_re.captures(&line) {
-                if let Some(m) = caps.get(1) {
-                    let s = m.as_str().to_string();
-
-                    if state.string_count < 4 {
-                        state.string_count += 1;
-                        match state.string_count {
-                            1 => state.app_name = Some(s),
-                            2 => state.icon = Some(s),
-                            3 => state.summary = Some(s),
-                            4 => {
-                                state.body = Some(s);
-                                flush_entry(&mut log_file, &mut state)?;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+    let mut iter = MessageIterator::from(&conn);
+    loop {
+        let msg = match iter.next() {
+            Some(Ok(m)) => m,
+            Some(Err(e)) => {
+                eprintln!("Error receiving D-Bus message: {e}");
+                continue;
             }
+            None => {
+                eprintln!("D-Bus message iterator ended");
+                break;
+            }
+        };
+
+        let message = match NotifyMessage::from_body(&msg.body()) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Failed to parse message body: {e}");
+                continue;
+            }
+        };
+
+        if let Err(e) = write_notification(message, &mut log_file) {
+            eprintln!("Failed to log notification: {e}");
         }
     }
 
@@ -115,39 +117,23 @@ fn open_log_file(path: &PathBuf) -> Result<File> {
     Ok(file)
 }
 
-fn flush_entry(log_file: &mut File, state: &mut State) -> Result<()> {
-    let app_name = match &state.app_name {
-        Some(a) => a,
-        None => {
-            state.reset();
-            bail!("Missing app_name while flushing notification");
-        }
-    };
+fn write_notification(message: NotifyMessage, log_file: &mut File) -> Result<()> {
+    if message.app_name.is_empty() || message.summary.is_empty() {
+        bail!("Appname and summary are required.");
+    }
 
-    let summary = match &state.summary {
-        Some(s) => s,
-        None => {
-            state.reset();
-            bail!("Missing summary while flushing notification");
-        }
-    };
-
-    let body = state.body.as_deref().unwrap_or("");
-    let icon = state.icon.as_deref().unwrap_or("");
-
-    let ts = chrono::Local::now().timestamp();
+    let ts = Local::now().timestamp();
 
     writeln!(
         log_file,
         "{}`{}`{}`{}`{}",
-        ts, app_name, icon, summary, body
+        ts, message.app_name, message.app_icon, message.summary, message.body
     )
     .context("Failed to write to log file")?;
     log_file.flush().context("Failed to flush log file")?;
 
     let human = Local::now().format("%Y-%m-%d %H:%M:%S");
-    println!("[{}] New notification", human);
+    println!("[{}] New notification from {}", human, message.app_name);
 
-    state.reset();
     Ok(())
 }
